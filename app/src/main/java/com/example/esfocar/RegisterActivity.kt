@@ -1,6 +1,7 @@
 
 package com.example.esfocar
 
+import android.app.ActivityOptions
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -32,6 +33,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.esfocar.ui.theme.ESFOCARTheme
 import android.widget.Toast
+import com.example.esfocar.data.local.AppDatabase
+import com.example.esfocar.data.local.entity.ProfesorEntity
+import com.example.esfocar.data.session.SessionManager
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 class RegisterActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,6 +46,9 @@ class RegisterActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ESFOCARTheme {
+                val coroutineScope = rememberCoroutineScope()
+                val context = LocalContext.current
+
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
@@ -68,24 +78,59 @@ class RegisterActivity : ComponentActivity() {
                             ),
                             singleLine = true
                         )
-                        val context = LocalContext.current
                         Spacer(modifier = Modifier.height(24.dp))
                         Text(text="¿Ya tienes una cuenta? Inicia Sesión", color = Color.Cyan,
                             modifier = Modifier.clickable{finish()})
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = {
+                            val correoLimpio = correo.trim().lowercase()
                             if (
                                 nombre.isNotBlank() &&
                                 apellidos.isNotBlank() &&
-                                correo.isNotBlank() &&
+                                correoLimpio.isNotBlank() &&
                                 contrasena.isNotBlank()
                             ) {
-                                Toast.makeText(
-                                    context,
-                                    "Registrado!",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }else{
+                                coroutineScope.launch {
+                                    val db = AppDatabase.obtenerInstancia(context)
+                                    val existe = db.profesorDao().existeCorreo(correoLimpio)
+                                    if (existe) {
+                                        Toast.makeText(
+                                            context,
+                                            "El correo ya está registrado",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        val nuevoProfesor = ProfesorEntity(
+                                            correo = correoLimpio,
+                                            password = contrasena,
+                                            nombre = nombre.trim(),
+                                            apellidos = apellidos.trim()
+                                        )
+                                        db.profesorDao().insertar(nuevoProfesor)
+
+                                        SessionManager(context).guardarSesion(
+                                            correo = correoLimpio,
+                                            nombre = "${nombre.trim()} ${apellidos.trim()}"
+                                        )
+
+                                        Toast.makeText(
+                                            context,
+                                            "¡Registro exitoso!",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+
+                                        // Animación de transición al registrarse correctamente
+                                        val opciones = ActivityOptions.makeCustomAnimation(
+                                            context,
+                                            R.anim.entrada_bounce,
+                                            android.R.anim.fade_out
+                                        )
+                                        val intent = Intent(context, MenuActivity::class.java)
+                                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                        context.startActivity(intent, opciones.toBundle())
+                                    }
+                                }
+                            } else {
                                 Toast.makeText(
                                     context,
                                     "Por favor, completa todos los campos",
