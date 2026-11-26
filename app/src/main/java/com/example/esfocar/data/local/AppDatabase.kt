@@ -4,20 +4,29 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.example.esfocar.data.local.dao.ProfesorDao
 import com.example.esfocar.data.local.dao.DocumentoDao
-import com.example.esfocar.data.local.entity.ProfesorEntity
+import com.example.esfocar.data.local.dao.ProfesorDao
+import com.example.esfocar.data.local.dao.RubricaDao
 import com.example.esfocar.data.local.entity.DocumentoEntity
+import com.example.esfocar.data.local.entity.EvaluacionRubricaEntity
+import com.example.esfocar.data.local.entity.PlantillaRubricaEntity
+import com.example.esfocar.data.local.entity.ProfesorEntity
 
 @Database(
-    entities = [ProfesorEntity::class, DocumentoEntity::class],
-    version = 1,
+    entities = [
+        ProfesorEntity::class,
+        DocumentoEntity::class,
+        PlantillaRubricaEntity::class,
+        EvaluacionRubricaEntity::class
+    ],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun profesorDao(): ProfesorDao
     abstract fun documentoDao(): DocumentoDao
+    abstract fun rubricaDao(): RubricaDao
 
     companion object {
         @Volatile
@@ -25,16 +34,15 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun obtenerInstancia(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instancia = Room.databaseBuilder(
+                val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "evaluacion_docente_db"
+                    "esfocar_database"
                 )
                     .fallbackToDestructiveMigration()
                     .build()
-
-                INSTANCE = instancia
-                instancia
+                INSTANCE = instance
+                instance
             }
         }
     }

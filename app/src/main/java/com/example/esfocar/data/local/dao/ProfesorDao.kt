@@ -6,7 +6,6 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Delete
 import com.example.esfocar.data.local.entity.ProfesorEntity
-
 @Dao
 interface ProfesorDao {
 
