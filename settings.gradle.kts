@@ -22,6 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ESFOCAR"
+rootProject.name = "My Application"
 include(":app")
- 

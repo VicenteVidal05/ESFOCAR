@@ -30,10 +30,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "evaluacion_docente_db"
                 )
-                // en prototipos es seguro usar fallbackToDestructiveMigration
-                // para que Room limpie y rehaga las tablas por si cambia el esquema
-                .fallbackToDestructiveMigration()
-                .build()
+                    .fallbackToDestructiveMigration()
+                    .build()
 
                 INSTANCE = instancia
                 instancia

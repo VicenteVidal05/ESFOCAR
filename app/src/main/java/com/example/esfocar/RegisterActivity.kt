@@ -1,4 +1,3 @@
-
 package com.example.esfocar
 
 import android.app.ActivityOptions
@@ -7,140 +6,41 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.esfocar.data.ProfesorRepository
+import com.example.esfocar.ui.RegisterScreen
 import com.example.esfocar.ui.theme.ESFOCARTheme
-import android.widget.Toast
-import com.example.esfocar.data.local.AppDatabase
-import com.example.esfocar.data.local.entity.ProfesorEntity
-import com.example.esfocar.data.session.SessionManager
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
+import com.example.esfocar.viewmodel.RegisterViewModel
 
 class RegisterActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val repository = ProfesorRepository(applicationContext)
+
         setContent {
+            val viewModel: RegisterViewModel = viewModel(
+                factory = remember { RegisterViewModel.Factory(repository) }
+            )
+
             ESFOCARTheme {
-                val coroutineScope = rememberCoroutineScope()
-                val context = LocalContext.current
-
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ){
-                        var contrasena by remember { mutableStateOf("") }
-                        var nombre by remember { mutableStateOf("") }
-                        var apellidos by remember { mutableStateOf("") }
-                        var correo by remember { mutableStateOf("") }
-                        Text("ESFOCAR Registro")
-                        Spacer(modifier = Modifier.height(24.dp))
-                        OutlinedTextField(value = nombre, onValueChange = {nombre = it }, label={Text("Nombre")})
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(value = apellidos, onValueChange = {apellidos = it }, label={Text("Apellidos")})
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(value = correo, onValueChange = {correo = it }, label={Text("Correo")})
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(
-                            value = contrasena,
-                            onValueChange = { contrasena = it },
-                            label = { Text("Contraseña") },
-                            visualTransformation =
-                                PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Password
-                            ),
-                            singleLine = true
+                RegisterScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = { finish() },
+                    onRegisterSuccess = {
+                        val opciones = ActivityOptions.makeCustomAnimation(
+                            this,
+                            R.anim.entrada_bounce,
+                            android.R.anim.fade_out
                         )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(text="¿Ya tienes una cuenta? Inicia Sesión", color = Color.Cyan,
-                            modifier = Modifier.clickable{finish()})
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Button(onClick = {
-                            val correoLimpio = correo.trim().lowercase()
-                            if (
-                                nombre.isNotBlank() &&
-                                apellidos.isNotBlank() &&
-                                correoLimpio.isNotBlank() &&
-                                contrasena.isNotBlank()
-                            ) {
-                                coroutineScope.launch {
-                                    val db = AppDatabase.obtenerInstancia(context)
-                                    val existe = db.profesorDao().existeCorreo(correoLimpio)
-                                    if (existe) {
-                                        Toast.makeText(
-                                            context,
-                                            "El correo ya está registrado",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        val nuevoProfesor = ProfesorEntity(
-                                            correo = correoLimpio,
-                                            password = contrasena,
-                                            nombre = nombre.trim(),
-                                            apellidos = apellidos.trim()
-                                        )
-                                        db.profesorDao().insertar(nuevoProfesor)
-
-                                        SessionManager(context).guardarSesion(
-                                            correo = correoLimpio,
-                                            nombre = "${nombre.trim()} ${apellidos.trim()}"
-                                        )
-
-                                        Toast.makeText(
-                                            context,
-                                            "¡Registro exitoso!",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-
-                                        // Animación de transición al registrarse correctamente
-                                        val opciones = ActivityOptions.makeCustomAnimation(
-                                            context,
-                                            R.anim.entrada_bounce,
-                                            android.R.anim.fade_out
-                                        )
-                                        val intent = Intent(context, MenuActivity::class.java)
-                                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                        context.startActivity(intent, opciones.toBundle())
-                                    }
-                                }
-                            } else {
-                                Toast.makeText(
-                                    context,
-                                    "Por favor, completa todos los campos",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-
-                        }) {Text("Registrate") }
+                        val intent = Intent(this, MenuActivity::class.java)
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        startActivity(intent, opciones.toBundle())
                     }
-                }
+                )
             }
         }
     }

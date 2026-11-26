@@ -10,12 +10,6 @@ data class ProfesorEntity(
     @ColumnInfo(name = "correo")
     val correo: String,
 
-    /**
-     * Se guarda la contraseña en texto plano de momento,
-     * pero en un futuro se encriptará,
-     * aqui ira guardado el hash de la contraseña
-     */
-
     @ColumnInfo(name = "password")
     val password: String,
 
