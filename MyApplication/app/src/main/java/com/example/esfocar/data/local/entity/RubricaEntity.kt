@@ -13,7 +13,8 @@ data class PlantillaRubricaEntity(
     val itemsJson: String,
     val puntajeMaximo: Double,
     val exigencia: Double = 0.60,
-    val fechaCreacion: Long = System.currentTimeMillis()
+    val fechaCreacion: Long = System.currentTimeMillis(),
+    val sincronizado: Boolean = false
 ) {
     fun toModel() = PlantillaRubrica(
         id = id,
@@ -26,14 +27,15 @@ data class PlantillaRubricaEntity(
     )
 
     companion object {
-        fun fromModel(p: PlantillaRubrica) = PlantillaRubricaEntity(
+        fun fromModel(p: PlantillaRubrica, sincronizado: Boolean = false) = PlantillaRubricaEntity(
             id = p.id,
             profesorCorreo = p.profesorCorreo,
             titulo = p.titulo,
             itemsJson = p.itemsJson,
             puntajeMaximo = p.puntajeMaximo,
             exigencia = p.exigencia,
-            fechaCreacion = p.fechaCreacion
+            fechaCreacion = p.fechaCreacion,
+            sincronizado = sincronizado
         )
     }
 }
@@ -51,7 +53,8 @@ data class EvaluacionRubricaEntity(
     val exigencia: Double = 0.60,
     val notaFinal: Double,
     val rutaPdf: String,
-    val fechaEvaluacion: Long = System.currentTimeMillis()
+    val fechaEvaluacion: Long = System.currentTimeMillis(),
+    val sincronizado: Boolean = false
 ) {
     fun toModel() = EvaluacionRubrica(
         id = id,
@@ -69,7 +72,7 @@ data class EvaluacionRubricaEntity(
     )
 
     companion object {
-        fun fromModel(e: EvaluacionRubrica) = EvaluacionRubricaEntity(
+        fun fromModel(e: EvaluacionRubrica, sincronizado: Boolean = false) = EvaluacionRubricaEntity(
             id = e.id,
             plantillaId = e.plantillaId,
             profesorCorreo = e.profesorCorreo,
@@ -80,8 +83,9 @@ data class EvaluacionRubricaEntity(
             puntajeMaximo = e.puntajeMaximo,
             exigencia = e.exigencia,
             notaFinal = e.notaFinal,
-            rutaPdf = e.rutaPdf,
-            fechaEvaluacion = e.fechaEvaluacion
+            rutaPdf = e.rutaPdf.orEmpty(),
+            fechaEvaluacion = e.fechaEvaluacion,
+            sincronizado = sincronizado
         )
     }
 }

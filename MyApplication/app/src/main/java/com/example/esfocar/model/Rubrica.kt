@@ -46,6 +46,6 @@ data class EvaluacionRubrica(
     val puntajeMaximo: Double,
     val exigencia: Double = 0.60,
     val notaFinal: Double,
-    val rutaPdf: String,
+    val rutaPdf: String? = null,
     val fechaEvaluacion: Long = System.currentTimeMillis()
 )

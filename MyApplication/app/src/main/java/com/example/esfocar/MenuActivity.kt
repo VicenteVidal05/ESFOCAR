@@ -7,7 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
 import com.example.esfocar.data.DocumentoRepository
 import com.example.esfocar.data.ProfesorRepository
-import com.example.esfocar.data.local.AppDatabase
+import com.example.esfocar.data.RubricaRepository
 import com.example.esfocar.ui.MenuScreen
 import com.example.esfocar.ui.theme.ESFOCARTheme
 import com.example.esfocar.viewmodel.MenuViewModel
@@ -18,12 +18,12 @@ class MenuActivity : ComponentActivity() {
 
         val profesorRepository = ProfesorRepository(this)
         val documentoRepository = DocumentoRepository(this)
-        val rubricaDao = AppDatabase.obtenerInstancia(this).rubricaDao()
+        val rubricaRepository = RubricaRepository(this)
 
         val factory = MenuViewModel.Factory(
             profesorRepository = profesorRepository,
             documentoRepository = documentoRepository,
-            rubricaDao = rubricaDao
+            rubricaRepository = rubricaRepository
         )
         val viewModel = ViewModelProvider(this, factory)[MenuViewModel::class.java]
 

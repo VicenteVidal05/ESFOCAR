@@ -6,10 +6,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.esfocar.data.DocumentoRepository
 import com.example.esfocar.data.ProfesorRepository
+import com.example.esfocar.data.RubricaRepository
 import com.example.esfocar.data.local.RubricaSerializador
-import com.example.esfocar.data.local.dao.RubricaDao
-import com.example.esfocar.data.local.entity.EvaluacionRubricaEntity
-import com.example.esfocar.data.local.entity.PlantillaRubricaEntity
+import com.example.esfocar.data.remote.ExternalRetrofitService
+import com.example.esfocar.data.remote.RetrofitClient
 import com.example.esfocar.model.Documento
 import com.example.esfocar.model.EvaluacionRubrica
 import com.example.esfocar.model.ItemRubrica
@@ -27,23 +27,31 @@ import java.util.Locale
 class MenuViewModel(
     private val profesorRepository: ProfesorRepository,
     private val documentoRepository: DocumentoRepository,
-    private val rubricaDao: RubricaDao
+    private val rubricaRepository: RubricaRepository,
+    private val externalService: ExternalRetrofitService = RetrofitClient.externalApi
 ) : ViewModel() {
-    fun registrarEvaluacionEnPdfs(context: Context, evaluacion: EvaluacionRubrica) {
+    fun exportarYRegistrarPdfEvaluacion(
+        context: Context,
+        evaluacion: EvaluacionRubrica,
+        destinoUri: android.net.Uri
+    ) {
         val correo = _uiState.value.correoActivo
         if (correo.isBlank()) return
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val archivoOrigen = File(evaluacion.rutaPdf)
-                if (!archivoOrigen.exists()) {
-                    _uiState.update { it.copy(error = "El archivo PDF de la evaluación no existe") }
-                    return@launch
-                }
+                val rutaOrigen = asegurarPdfLocal(context, evaluacion)
+                val archivoOrigen = File(rutaOrigen)
 
+                // 1. Escribe en la ubicación elegida por el usuario (Descargas / Drive)
+                context.contentResolver.openOutputStream(destinoUri)?.use { out ->
+                    archivoOrigen.inputStream().use { input -> input.copyTo(out) }
+                } ?: throw IllegalStateException("No se pudo abrir el destino para guardar el PDF")
+
+                // 2. Guarda una copia interna y la registra en la pestaña PDFS
                 val carpetaPdfs = File(context.filesDir, "pdfs").apply { if (!exists()) mkdirs() }
                 val notaStr = String.format(Locale.US, "%.2f", evaluacion.notaFinal)
-                val nombreLimpio = evaluacion.nombreEstudiante.trim().replace(" ", "_")
+                val nombreLimpio = evaluacion.nombreEstudiante.trim().replace(Regex("[^a-zA-Z0-9_-]"), "_")
                 val archivoDestino = File(carpetaPdfs, "${System.currentTimeMillis()}_Rubrica_${nombreLimpio}.pdf")
 
                 archivoOrigen.copyTo(archivoDestino, overwrite = true)
@@ -56,14 +64,32 @@ class MenuViewModel(
                 )
                 documentoRepository.agregar(nuevoDoc)
                 _uiState.update {
-                    it.copy(mensaje = "PDF descargado y añadido a la pestaña PDFs")
+                    it.copy(mensaje = "PDF guardado y añadido a la pestaña PDFs")
                 }
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(error = "Error al registrar PDF: ${e.message}")
+                    it.copy(error = "Error al guardar PDF: ${e.message}")
                 }
             }
         }
+    }
+    private fun asegurarPdfLocal(context: Context, evaluacion: EvaluacionRubrica): String {
+        val rutaActual = evaluacion.rutaPdf.orEmpty()
+        if (rutaActual.isNotBlank() && File(rutaActual).exists()) {
+            return rutaActual
+        }
+        val docenteNombre = _uiState.value.nombreActivo.ifBlank { evaluacion.profesorCorreo }
+        val items = RubricaSerializador.fromJson(evaluacion.itemsJson)
+        return RubricaPdfHelper.generarPdfRubrica(
+            context = context,
+            tituloRubrica = evaluacion.tituloRubrica,
+            nombreEstudiante = evaluacion.nombreEstudiante,
+            docente = docenteNombre,
+            items = items,
+            puntajeObtenido = evaluacion.puntajeObtenido,
+            puntajeMaximo = evaluacion.puntajeMaximo,
+            notaFinal = evaluacion.notaFinal
+        )
     }
     private val _uiState = MutableStateFlow(MenuUiState())
     val uiState: StateFlow<MenuUiState> = _uiState.asStateFlow()
@@ -73,8 +99,8 @@ class MenuViewModel(
     }
 
     private fun cargarDatosIniciales() {
-        val correo = profesorRepository.obtenerCorreoActivo().orEmpty()
-        val nombre = profesorRepository.obtenerNombreActivo().orEmpty()
+        val correo = profesorRepository.obtenerCorreoActivo()
+        val nombre = profesorRepository.obtenerNombreActivo()
 
         _uiState.update {
             it.copy(
@@ -84,22 +110,55 @@ class MenuViewModel(
             )
         }
 
+        cargarFeriadosExternos()
+
         if (correo.isNotBlank()) {
             viewModelScope.launch {
                 documentoRepository.observarPorProfesor(correo).collect { listaDocs ->
                     _uiState.update { it.copy(documentacionDocs = listaDocs) }
                 }
             }
-
             viewModelScope.launch {
-                rubricaDao.obtenerPlantillas(correo).collect { lista ->
-                    _uiState.update { it.copy(plantillas = lista.map { e -> e.toModel() }) }
+                rubricaRepository.observarPlantillas(correo).collect { lista ->
+                    _uiState.update { it.copy(plantillas = lista) }
                 }
             }
-
             viewModelScope.launch {
-                rubricaDao.obtenerEvaluaciones(correo).collect { lista ->
-                    _uiState.update { it.copy(evaluaciones = lista.map { e -> e.toModel() }) }
+                rubricaRepository.observarEvaluaciones(correo).collect { lista ->
+                    _uiState.update { it.copy(evaluaciones = lista) }
+                }
+            }
+            sincronizarAhora(silencioso = true)
+        }
+    }
+
+    private fun cargarFeriadosExternos() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(cargandoApiExterna = true) }
+            try {
+                val lista = externalService.obtenerProximosFeriados("CL").take(2)
+                _uiState.update {
+                    it.copy(
+                        feriadosExternos = lista,
+                        cargandoApiExterna = false
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("API_EXTERNA", "Error al consultar Nager.Date", e)
+                _uiState.update { it.copy(cargandoApiExterna = false) }
+            }
+        }
+    }
+
+    fun sincronizarAhora(silencioso: Boolean = false) {
+        val correo = _uiState.value.correoActivo
+        if (correo.isBlank()) return
+        viewModelScope.launch {
+            val ok = rubricaRepository.sincronizarConServidor(correo)
+            if (!silencioso) {
+                _uiState.update {
+                    if (ok) it.copy(mensaje = "Sincronizado con la nube")
+                    else it.copy(error = "Sin conexión: datos guardados localmente")
                 }
             }
         }
@@ -189,18 +248,14 @@ class MenuViewModel(
             try {
                 val modelo = PlantillaRubrica(
                     id = plantillaExistente?.id ?: 0,
-                    profesorCorreo = correo,
                     titulo = titulo.trim(),
+                    fechaCreacion = plantillaExistente?.fechaCreacion ?: System.currentTimeMillis(),
+                    profesorCorreo = plantillaExistente?.profesorCorreo ?: _uiState.value.correoActivo,
                     itemsJson = itemsJson,
                     puntajeMaximo = puntajeMaximo,
-                    fechaCreacion = plantillaExistente?.fechaCreacion ?: System.currentTimeMillis()
+                    exigencia = plantillaExistente?.exigencia ?: 0.60
                 )
-                val entity = PlantillaRubricaEntity.fromModel(modelo)
-                if (plantillaExistente == null) {
-                    rubricaDao.insertarPlantilla(entity)
-                } else {
-                    rubricaDao.actualizarPlantilla(entity)
-                }
+                val sincronizado = rubricaRepository.guardarPlantilla(modelo, esEdicion = plantillaExistente != null)
                 _uiState.update {
                     it.copy(
                         mostrarEditorPlantilla = false,
@@ -217,7 +272,7 @@ class MenuViewModel(
     fun eliminarPlantilla(plantilla: PlantillaRubrica) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                rubricaDao.eliminarPlantilla(PlantillaRubricaEntity.fromModel(plantilla))
+                rubricaRepository.eliminarPlantilla(plantilla)
                 _uiState.update { it.copy(mensaje = "Rúbrica eliminada") }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Error al eliminar: ${e.message}") }
@@ -307,12 +362,7 @@ class MenuViewModel(
                     fechaEvaluacion = ahora
                 )
 
-                val entity = EvaluacionRubricaEntity.fromModel(modelo)
-                if (evaluacionExistente == null) {
-                    rubricaDao.insertarEvaluacion(entity)
-                } else {
-                    rubricaDao.actualizarEvaluacion(entity)
-                }
+                val sincronizado = rubricaRepository.guardarEvaluacion(modelo, esEdicion = evaluacionExistente != null)
 
                 val notaFormateada = String.format(Locale.US, "%.2f", notaFinal)
                 val docPreview = Documento(
@@ -337,25 +387,32 @@ class MenuViewModel(
         }
     }
 
-    fun verPdfEvaluacion(evaluacion: EvaluacionRubrica) {
-        val notaFormateada = String.format(Locale.US, "%.2f", evaluacion.notaFinal)
-        val doc = Documento(
-            id = evaluacion.id.toLong(),
-            titulo = "${evaluacion.tituloRubrica} · ${evaluacion.nombreEstudiante} ($notaFormateada)",
-            rutaOContenido = evaluacion.rutaPdf,
-            fechaCarga = evaluacion.fechaEvaluacion,
-            correoProfesor = evaluacion.profesorCorreo
-        )
-        _uiState.update { it.copy(documentoSeleccionado = doc) }
+    fun verPdfEvaluacion(context: Context, evaluacion: EvaluacionRubrica) {
+        viewModelScope.launch {
+            try {
+                val rutaLista = asegurarPdfLocal(context, evaluacion)
+                val notaFormateada = String.format(Locale.US, "%.2f", evaluacion.notaFinal)
+                val doc = Documento(
+                    id = evaluacion.id.toLong(),
+                    titulo = "${evaluacion.tituloRubrica} · ${evaluacion.nombreEstudiante} ($notaFormateada)",
+                    rutaOContenido = rutaLista,
+                    fechaCarga = evaluacion.fechaEvaluacion,
+                    correoProfesor = evaluacion.profesorCorreo
+                )
+                _uiState.update { it.copy(documentoSeleccionado = doc) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "No se pudo generar vista previa: ${e.message}") }
+            }
+        }
     }
 
     fun eliminarEvaluacion(evaluacion: EvaluacionRubrica) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (evaluacion.rutaPdf.isNotBlank()) {
-                    runCatching { File(evaluacion.rutaPdf).delete() }
+                if (evaluacion.rutaPdf.orEmpty().isNotBlank()) {
+                    File(evaluacion.rutaPdf.orEmpty()).delete()
                 }
-                rubricaDao.eliminarEvaluacion(EvaluacionRubricaEntity.fromModel(evaluacion))
+                rubricaRepository.eliminarEvaluacion(evaluacion)
                 _uiState.update { it.copy(mensaje = "Evaluación eliminada") }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Error al eliminar evaluación: ${e.message}") }
@@ -376,12 +433,12 @@ class MenuViewModel(
     class Factory(
         private val profesorRepository: ProfesorRepository,
         private val documentoRepository: DocumentoRepository,
-        private val rubricaDao: RubricaDao
+        private val rubricaRepository: RubricaRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(MenuViewModel::class.java)) {
-                return MenuViewModel(profesorRepository, documentoRepository, rubricaDao) as T
+                return MenuViewModel(profesorRepository, documentoRepository, rubricaRepository) as T
             }
             throw IllegalArgumentException("ViewModel no reconocido: ${modelClass.name}")
         }

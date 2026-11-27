@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.*
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.esfocar.data.remote.dto.FeriadoExternoDto
 import com.example.esfocar.model.Documento
 import com.example.esfocar.model.EvaluacionRubrica
 import com.example.esfocar.model.PlantillaRubrica
@@ -38,7 +40,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
+import java.util.Locale //FilterChip
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,16 +93,7 @@ fun MenuScreen(
     ) { destinoUri ->
         val eval = evaluacionADescargar
         if (destinoUri != null && eval != null) {
-            try {
-                val archivoOrigen = File(eval.rutaPdf)
-                context.contentResolver.openOutputStream(destinoUri)?.use { out ->
-                    archivoOrigen.inputStream().use { input -> input.copyTo(out) }
-                }
-
-                viewModel.registrarEvaluacionEnPdfs(context, eval)
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error al descargar PDF: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+            viewModel.exportarYRegistrarPdfEvaluacion(context, eval, destinoUri)
         }
         evaluacionADescargar = null
     }
@@ -221,6 +214,18 @@ fun MenuScreen(
                 .padding(horizontal = 18.dp, vertical = 14.dp)
                 .fillMaxSize()
         ) {
+            if (uiState.feriadosExternos.isNotEmpty()) {
+                FeriadosExternosBanner(
+                    feriados = uiState.feriadosExternos,
+                    cargando = uiState.cargandoApiExterna,
+                    surfaceColor = surfaceDark,
+                    borderColor = bordeSutil,
+                    doradoColor = doradoDetalle,
+                    textoSecundario = textoSecundario
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -313,7 +318,7 @@ fun MenuScreen(
                             items(uiState.evaluaciones, key = { it.id }) { eval ->
                                 EvaluacionCardDark(
                                     evaluacion = eval,
-                                    onVerPdf = { viewModel.verPdfEvaluacion(eval) },
+                                    onVerPdf = { viewModel.verPdfEvaluacion(context, eval) },
                                     onDescargarPdf = {
                                         evaluacionADescargar = eval
                                         val nombreArchivo = "Rubrica_${eval.nombreEstudiante.replace(" ", "_")}.pdf"
@@ -653,5 +658,70 @@ private fun copiarPdfAAlmacenamientoInterno(
         archivoDestino.absolutePath
     } catch (e: Exception) {
         null
+    }
+}
+
+@Composable
+private fun FeriadosExternosBanner(
+    feriados: List<FeriadoExternoDto>,
+    cargando: Boolean,
+    surfaceColor: Color,
+    borderColor: Color,
+    doradoColor: Color,
+    textoSecundario: Color
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = surfaceColor,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.EventAvailable,
+                contentDescription = "Calendario académico",
+                tint = doradoColor,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Próximos feriados Chile (API Externa)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = doradoColor
+                )
+                when {
+                    cargando -> {
+                        Text(
+                            text = "Consultando calendario oficial...",
+                            fontSize = 12.sp,
+                            color = textoSecundario
+                        )
+                    }
+                    feriados.isEmpty() -> {
+                        Text(
+                            text = "Sin conexión para consultar feriados",
+                            fontSize = 12.sp,
+                            color = textoSecundario
+                        )
+                    }
+                    else -> {
+                        feriados.forEach { feriado ->
+                            Text(
+                                text = "${feriado.fecha} · ${feriado.nombreLocal}",
+                                fontSize = 12.sp,
+                                color = textoSecundario,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

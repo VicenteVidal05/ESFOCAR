@@ -3,12 +3,18 @@ package com.example.esfocar.data
 import android.content.Context
 import com.example.esfocar.data.local.AppDatabase
 import com.example.esfocar.data.local.entity.ProfesorEntity
+import com.example.esfocar.data.remote.RetrofitClient
+import com.example.esfocar.data.remote.UsuariosApiService
+import com.example.esfocar.data.remote.dto.LoginRequestDto
 import com.example.esfocar.data.session.SessionManager
 import com.example.esfocar.model.Profesor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class ProfesorRepository(context: Context) {
+class ProfesorRepository(
+    context: Context,
+    private val api: UsuariosApiService = RetrofitClient.usuariosApi
+) {
 
     private val profesorDao = AppDatabase.obtenerInstancia(context).profesorDao()
     private val sessionManager = SessionManager(context)
@@ -24,19 +30,46 @@ class ProfesorRepository(context: Context) {
     }
 
     suspend fun iniciarSesion(correo: String, contrasena: String): Profesor? = withContext(Dispatchers.IO) {
-        val entity = profesorDao.buscarPorCorreo(correo)
-        if (entity != null && entity.password == contrasena) {
-            val profesor = Profesor(
-                correo = entity.correo,
-                password = entity.password,
-                nombre = entity.nombre,
-                apellidos = entity.apellidos
+        // 1. Intenta validar contra el microservicio remoto
+        val profesorRemoto = runCatching {
+            val response = api.login(LoginRequestDto(correo = correo, password = contrasena))
+            if (response.isSuccessful) response.body() else null
+        }.getOrNull()
+
+        if (profesorRemoto != null) {
+            // Guarda/actualiza copia local en Room
+            profesorDao.insertar(
+                ProfesorEntity(
+                    correo = profesorRemoto.correo,
+                    password = profesorRemoto.password,
+                    nombre = profesorRemoto.nombre,
+                    apellidos = profesorRemoto.apellidos
+                )
             )
             sessionManager.guardarSesion(
-                correo = profesor.correo,
-                nombre = "${profesor.nombre} ${profesor.apellidos}"
+                correo = profesorRemoto.correo,
+                nombre = "${profesorRemoto.nombre} ${profesorRemoto.apellidos}"
             )
-            profesor
+            return@withContext profesorRemoto
+        }
+
+        // 2. Respaldo offline: busca en Room local
+        val local = profesorDao.buscarPorCorreo(correo)
+        if (local != null && local.password == contrasena) {
+            val profesorLocal = Profesor(
+                correo = local.correo,
+                password = local.password,
+                nombre = local.nombre,
+                apellidos = local.apellidos
+            )
+            // Intenta sincronizar usuario local hacia el backend si no existía allá
+            runCatching { api.registrar(profesorLocal) }
+
+            sessionManager.guardarSesion(
+                correo = profesorLocal.correo,
+                nombre = "${profesorLocal.nombre} ${profesorLocal.apellidos}"
+            )
+            profesorLocal
         } else {
             null
         }
@@ -46,21 +79,27 @@ class ProfesorRepository(context: Context) {
         if (profesorDao.existeCorreo(profesor.correo)) {
             return@withContext false
         }
+
+        // Intenta registrar en el microservicio
+        val resultadoRemoto = runCatching { api.registrar(profesor) }.getOrNull()
+        if (resultadoRemoto != null && resultadoRemoto.code() == 409) {
+            return@withContext false // Ya existe en servidor
+        }
+
+        // Guarda siempre en Room local
         val entity = ProfesorEntity(
             correo = profesor.correo,
             password = profesor.password,
             nombre = profesor.nombre,
             apellidos = profesor.apellidos
         )
-        val resultado = profesorDao.insertar(entity)
-        if (resultado != -1L) {
+        val insertado = profesorDao.insertar(entity) != -1L
+        if (insertado) {
             sessionManager.guardarSesion(
                 correo = profesor.correo,
                 nombre = "${profesor.nombre} ${profesor.apellidos}"
             )
-            true
-        } else {
-            false
         }
+        insertado
     }
 }
