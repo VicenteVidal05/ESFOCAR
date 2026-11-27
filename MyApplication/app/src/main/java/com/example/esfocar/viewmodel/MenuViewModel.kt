@@ -15,6 +15,7 @@ import com.example.esfocar.model.EvaluacionRubrica
 import com.example.esfocar.model.ItemRubrica
 import com.example.esfocar.model.PlantillaRubrica
 import com.example.esfocar.util.RubricaPdfHelper
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +29,8 @@ class MenuViewModel(
     private val profesorRepository: ProfesorRepository,
     private val documentoRepository: DocumentoRepository,
     private val rubricaRepository: RubricaRepository,
-    private val externalService: ExternalRetrofitService = RetrofitClient.externalApi
+    private val externalService: ExternalRetrofitService = RetrofitClient.externalApi,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     fun exportarYRegistrarPdfEvaluacion(
         context: Context,
@@ -38,7 +40,7 @@ class MenuViewModel(
         val correo = _uiState.value.correoActivo
         if (correo.isBlank()) return
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val rutaOrigen = asegurarPdfLocal(context, evaluacion)
                 val archivoOrigen = File(rutaOrigen)
@@ -244,7 +246,7 @@ class MenuViewModel(
         val puntajeMaximo = itemsLimpios.sumOf { it.puntajeMaximo() }
         val itemsJson = RubricaSerializador.toJson(itemsLimpios)
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val modelo = PlantillaRubrica(
                     id = plantillaExistente?.id ?: 0,
@@ -270,7 +272,7 @@ class MenuViewModel(
     }
 
     fun eliminarPlantilla(plantilla: PlantillaRubrica) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 rubricaRepository.eliminarPlantilla(plantilla)
                 _uiState.update { it.copy(mensaje = "Rúbrica eliminada") }
@@ -332,7 +334,7 @@ class MenuViewModel(
         val puntajeMaximo = itemsEvaluados.sumOf { it.puntajeMaximo() }
         val notaFinal = RubricaPdfHelper.calcularNotaChilena(puntajeObtenido, puntajeMaximo)
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val docenteNombre = _uiState.value.nombreActivo.ifBlank { correo }
                 val rutaPdf = RubricaPdfHelper.generarPdfRubrica(
@@ -407,7 +409,7 @@ class MenuViewModel(
     }
 
     fun eliminarEvaluacion(evaluacion: EvaluacionRubrica) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 if (evaluacion.rutaPdf.orEmpty().isNotBlank()) {
                     File(evaluacion.rutaPdf.orEmpty()).delete()

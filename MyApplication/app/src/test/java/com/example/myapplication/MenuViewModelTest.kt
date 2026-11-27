@@ -16,6 +16,8 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -74,17 +76,30 @@ class MenuViewModelTest {
 
     @Test
     fun `guardarPlantilla valida invoca repositorio y cierra dialogo`() = runTest {
+        val testDispatcher = StandardTestDispatcher(testScheduler)
         coEvery { rubricaRepository.guardarPlantilla(any(), any()) } returns true
-        val viewModel = MenuViewModel(profesorRepository, documentoRepository, rubricaRepository, externalService)
+
+        val viewModel = MenuViewModel(
+            profesorRepository = profesorRepository,
+            documentoRepository = documentoRepository,
+            rubricaRepository = rubricaRepository,
+            externalService = externalService,
+            ioDispatcher = testDispatcher
+        )
         viewModel.abrirNuevaPlantilla()
         assertTrue(viewModel.uiState.value.mostrarEditorPlantilla)
 
         val items = listOf(ItemRubrica(criterio = "Presentación personal", puntajeLogrado = 4.0))
         viewModel.guardarPlantilla(plantillaExistente = null, titulo = "Inspección", items = items)
 
+        advanceUntilIdle()
+
         assertNull("Error inesperado: ${viewModel.uiState.value.error}", viewModel.uiState.value.error)
         assertFalse(viewModel.uiState.value.mostrarEditorPlantilla)
-        assertEquals("Rúbrica guardada y sincronizada", viewModel.uiState.value.mensaje)
+        assertEquals(
+            "Rúbrica guardada. Ahora puedes usarla para evaluar alumnos.",
+            viewModel.uiState.value.mensaje
+        )
         coVerify(exactly = 1) { rubricaRepository.guardarPlantilla(any(), false) }
     }
 
